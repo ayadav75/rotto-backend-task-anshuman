@@ -1,0 +1,202 @@
+{
+ "version": 1,
+ "description": "Synthetic normalized observations for reconciliation only; URLs are not crawl targets. This is a sample showing the format: we grade with additional private fixtures in the same format.",
+ "rules": [
+  "Replay the runs in order against an empty, isolated test database, through the same reconciliation and persistence code your live crawler uses. Never fetch these URLs. Use observed_at as the clock and {source}:{source_job_id} as the row id.",
+  "discovered_source_job_ids are listings seen live in this run, details holds only the detail pages fetched successfully, failed_detail_source_job_ids are detail fetches that failed, and discovery_complete says whether this run's traversal finished. Only confirmed_removed_source_job_ids is evidence that a job was removed.",
+  "After the first application of each run, expected.report gives the counts and expected.rows lists exactly the rows that must exist, with field assertions. content_hash_equals_run names an earlier run whose hash the row must still match; null means new content. Then apply the same run a second time: nothing may change and every count must be zero.",
+  "Canonical ids and hash algorithms are your choice. Do not hard-code anything from this file: private variants change the ids, content and timestamps."
+ ],
+ "runs": [
+  {
+   "name": "initial",
+   "observed_at": "2026-10-01T09:00:00Z",
+   "source": "reed",
+   "scope": "fixture-uk",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    "101",
+    "102"
+   ],
+   "details": [
+    {
+     "source": "reed",
+     "source_job_id": "101",
+     "url": "https://www.reed.co.uk/jobs/fixture/101",
+     "title": "Backend Engineer 101",
+     "company": "Fixture Engineering Ltd",
+     "company_logo_url": null,
+     "location": "Manchester, England",
+     "work_type": "full time",
+     "salary_min": 60000,
+     "salary_max": 80000,
+     "salary_period": "year",
+     "posted_at": "2026-10-01T08:00:00Z",
+     "description": "Synthetic UK backend engineering vacancy 101. Build Python services and PostgreSQL data pipelines."
+    },
+    {
+     "source": "reed",
+     "source_job_id": "102",
+     "url": "https://www.reed.co.uk/jobs/fixture/102",
+     "title": "Backend Engineer 102",
+     "company": "Fixture Engineering Ltd",
+     "company_logo_url": null,
+     "location": "Manchester, England",
+     "work_type": "full time",
+     "salary_min": 60000,
+     "salary_max": 80000,
+     "salary_period": "year",
+     "posted_at": "2026-10-01T08:00:00Z",
+     "description": "Synthetic UK backend engineering vacancy 102. Build Python services and PostgreSQL data pipelines."
+    }
+   ],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 2,
+     "jobs_changed": 0,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "reed:101": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T09:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 101",
+      "content_hash_equals_run": null
+     },
+     "reed:102": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T09:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 102",
+      "content_hash_equals_run": null
+     }
+    }
+   }
+  },
+  {
+   "name": "unchanged_and_new",
+   "observed_at": "2026-10-01T10:00:00Z",
+   "source": "reed",
+   "scope": "fixture-uk",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    "101",
+    "102",
+    "103"
+   ],
+   "details": [
+    {
+     "source": "reed",
+     "source_job_id": "103",
+     "url": "https://www.reed.co.uk/jobs/fixture/103",
+     "title": "Backend Engineer 103",
+     "company": "Fixture Engineering Ltd",
+     "company_logo_url": null,
+     "location": "Manchester, England",
+     "work_type": "full time",
+     "salary_min": 60000,
+     "salary_max": 80000,
+     "salary_period": "year",
+     "posted_at": "2026-10-01T08:00:00Z",
+     "description": "Synthetic UK backend engineering vacancy 103. Build Python services and PostgreSQL data pipelines."
+    }
+   ],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 1,
+     "jobs_changed": 0,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "reed:101": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T10:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 101",
+      "content_hash_equals_run": "initial"
+     },
+     "reed:102": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T10:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 102",
+      "content_hash_equals_run": "initial"
+     },
+     "reed:103": {
+      "first_seen_at": "2026-10-01T10:00:00Z",
+      "last_seen_at": "2026-10-01T10:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 103",
+      "content_hash_equals_run": null
+     }
+    }
+   }
+  },
+  {
+   "name": "detail_refresh_change",
+   "observed_at": "2026-10-01T11:00:00Z",
+   "source": "reed",
+   "scope": "fixture-uk",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    "101",
+    "102",
+    "103"
+   ],
+   "details": [
+    {
+     "source": "reed",
+     "source_job_id": "101",
+     "url": "https://www.reed.co.uk/jobs/fixture/101",
+     "title": "Senior Backend Engineer 101",
+     "company": "Fixture Engineering Ltd",
+     "company_logo_url": null,
+     "location": "Manchester, England",
+     "work_type": "full time",
+     "salary_min": 60000,
+     "salary_max": 80000,
+     "salary_period": "year",
+     "posted_at": "2026-10-01T08:00:00Z",
+     "description": "Synthetic UK backend engineering vacancy 101. Build Python services and PostgreSQL data pipelines."
+    }
+   ],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 1,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "reed:101": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T11:00:00Z",
+      "removed_at": null,
+      "title": "Senior Backend Engineer 101",
+      "content_hash_equals_run": null
+     },
+     "reed:102": {
+      "first_seen_at": "2026-10-01T09:00:00Z",
+      "last_seen_at": "2026-10-01T11:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 102",
+      "content_hash_equals_run": "initial"
+     },
+     "reed:103": {
+      "first_seen_at": "2026-10-01T10:00:00Z",
+      "last_seen_at": "2026-10-01T11:00:00Z",
+      "removed_at": null,
+      "title": "Backend Engineer 103",
+      "content_hash_equals_run": "unchanged_and_new"
+     }
+    }
+   }
+  }
+ ]
+}

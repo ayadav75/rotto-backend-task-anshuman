@@ -1,0 +1,4 @@
+psycopg[binary]==3.2.3
+curl_cffi==0.7.4
+selectolax==0.3.27
+rapidfuzz==3.10.1

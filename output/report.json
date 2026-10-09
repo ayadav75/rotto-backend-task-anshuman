@@ -1,0 +1,24 @@
+{
+  "started_at": "2026-10-09T17:08:48.960885+00:00",
+  "finished_at": "2026-10-09T17:10:48.946386+00:00",
+  "requests_total": 123,
+  "requests_blocked": 4,
+  "requests_by_status": {
+    "200": 119,
+    "429": 4
+  },
+  "blocked_reasons": {
+    "http_429": 4
+  },
+  "jobs_by_source": {
+    "linkedin": 218,
+    "reed": 391,
+    "indeed": 11209
+  },
+  "duplicates_linked": 1,
+  "jobs_new": 262,
+  "jobs_removed": 0,
+  "jobs_changed": 27,
+  "estimated_proxy_gb": 0.0113,
+  "estimated_cost_usd": 0.0566
+}

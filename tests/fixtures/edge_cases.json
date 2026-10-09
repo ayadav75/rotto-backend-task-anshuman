@@ -1,0 +1,339 @@
+{
+ "version": 1,
+ "description": "Edge cases for reconcile (same format as the public fixture)",
+ "runs": [
+  {
+   "name": "seed",
+   "observed_at": "2026-10-02T09:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    1,
+    2,
+    3
+   ],
+   "details": [
+    {
+     "source": "indeed",
+     "source_job_id": "1",
+     "url": "https://uk.indeed.com/viewjob?jk=1",
+     "title": "Data Engineer 1",
+     "company": "Edge Co",
+     "company_logo_url": null,
+     "location": "Leeds, England",
+     "work_type": "full time",
+     "salary_min": null,
+     "salary_max": null,
+     "salary_period": null,
+     "posted_at": "2026-10-02T07:00:00Z",
+     "description": "Build pipelines. 1"
+    },
+    {
+     "source": "indeed",
+     "source_job_id": "2",
+     "url": "https://uk.indeed.com/viewjob?jk=2",
+     "title": "Data Engineer 2",
+     "company": "Edge Co",
+     "company_logo_url": null,
+     "location": "Leeds, England",
+     "work_type": "full time",
+     "salary_min": null,
+     "salary_max": null,
+     "salary_period": null,
+     "posted_at": "2026-10-02T07:00:00Z",
+     "description": "Build pipelines. 2"
+    },
+    {
+     "source": "indeed",
+     "source_job_id": "3",
+     "url": "https://uk.indeed.com/viewjob?jk=3",
+     "title": "Data Engineer 3",
+     "company": "Edge Co",
+     "company_logo_url": null,
+     "location": "Leeds, England",
+     "work_type": "full time",
+     "salary_min": null,
+     "salary_max": null,
+     "salary_period": null,
+     "posted_at": "2026-10-02T07:00:00Z",
+     "description": "Build pipelines. 3"
+    }
+   ],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 3,
+     "jobs_changed": 0,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": null
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": null
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": null
+     }
+    }
+   }
+  },
+  {
+   "name": "absence_is_not_removal",
+   "observed_at": "2026-10-02T10:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    1,
+    2
+   ],
+   "details": [],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 0,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T10:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T10:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     }
+    }
+   }
+  },
+  {
+   "name": "failed_and_incomplete",
+   "observed_at": "2026-10-02T11:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": false,
+   "discovered_source_job_ids": [
+    1,
+    2,
+    9
+   ],
+   "details": [
+    {
+     "source": "indeed",
+     "source_job_id": "1",
+     "url": "https://uk.indeed.com/viewjob?jk=1",
+     "title": "Data Engineer 1",
+     "company": "Edge Co",
+     "company_logo_url": null,
+     "location": "Leeds, England",
+     "work_type": "full time",
+     "salary_min": null,
+     "salary_max": null,
+     "salary_period": null,
+     "posted_at": "2026-10-02T07:00:00Z",
+     "description": "Build pipelines. 1"
+    }
+   ],
+   "failed_detail_source_job_ids": [
+    2,
+    9
+   ],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 0,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T11:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T11:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     }
+    }
+   }
+  },
+  {
+   "name": "confirmed_removal",
+   "observed_at": "2026-10-02T12:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    1
+   ],
+   "details": [],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [
+    3,
+    777
+   ],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 0,
+     "jobs_removed": 1
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T12:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T11:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T09:00:00Z",
+      "removed_at": "2026-10-02T12:00:00Z",
+      "content_hash_equals_run": "seed"
+     }
+    }
+   }
+  },
+  {
+   "name": "reappears_changed",
+   "observed_at": "2026-10-02T13:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    1,
+    2,
+    3
+   ],
+   "details": [
+    {
+     "source": "indeed",
+     "source_job_id": "3",
+     "url": "https://uk.indeed.com/viewjob?jk=3",
+     "title": "Data Engineer 3",
+     "company": "Edge Co",
+     "company_logo_url": null,
+     "location": "Leeds, England",
+     "work_type": "full time",
+     "salary_min": null,
+     "salary_max": null,
+     "salary_period": null,
+     "posted_at": "2026-10-02T07:00:00Z",
+     "description": "Rebuilt pipelines. 3"
+    }
+   ],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 1,
+     "jobs_removed": 0
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": null
+     }
+    }
+   }
+  },
+  {
+   "name": "removal_beats_sighting",
+   "observed_at": "2026-10-02T14:00:00Z",
+   "source": "indeed",
+   "scope": "edge",
+   "discovery_complete": true,
+   "discovered_source_job_ids": [
+    2
+   ],
+   "details": [],
+   "failed_detail_source_job_ids": [],
+   "confirmed_removed_source_job_ids": [
+    2
+   ],
+   "expected": {
+    "report": {
+     "jobs_new": 0,
+     "jobs_changed": 0,
+     "jobs_removed": 1
+    },
+    "rows": {
+     "indeed:1": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:2": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": "2026-10-02T14:00:00Z",
+      "content_hash_equals_run": "seed"
+     },
+     "indeed:3": {
+      "first_seen_at": "2026-10-02T09:00:00Z",
+      "last_seen_at": "2026-10-02T13:00:00Z",
+      "removed_at": null,
+      "content_hash_equals_run": "reappears_changed"
+     }
+    }
+   }
+  }
+ ]
+}

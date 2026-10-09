@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: crawler
+      POSTGRES_PASSWORD: crawler
+      POSTGRES_DB: jobs
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d jobs"]
+      interval: 2s
+      retries: 30
+  crawler:
+    build: .
+    profiles: ["tools"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgresql://crawler:crawler@postgres:5432/jobs
+      ADMIN_DATABASE_URL: postgresql://crawler:crawler@postgres:5432/postgres
+      PROXY_URL: ${PROXY_URL:-}
+      PROXY_HOST: ${PROXY_HOST:-}
+      PROXY_PORT: ${PROXY_PORT:-}
+      PROXY_USERNAME: ${PROXY_USERNAME:-}
+      PROXY_PASSWORD: ${PROXY_PASSWORD:-}
+      CHANGE_DEBUG: ${CHANGE_DEBUG:-}
+      CRAWL_BOARDS: ${CRAWL_BOARDS:-}
+      CRAWL_STALE_CHECKS: ${CRAWL_STALE_CHECKS:-500}
+      PROXY_USD_PER_GB: ${PROXY_USD_PER_GB:-5}
+      CRAWL_MAX_MINUTES: ${CRAWL_MAX_MINUTES:-90}
+      CRAWL_MAX_GB: ${CRAWL_MAX_GB:-2}
+      CRAWL_MAX_REQUESTS_PER_BOARD: ${CRAWL_MAX_REQUESTS_PER_BOARD:-6000}
+    volumes:
+      - ./output:/app/output
+      - ./src:/app/src
+      - ./tests:/app/tests
+volumes:
+  pgdata:
