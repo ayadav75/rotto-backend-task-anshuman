@@ -1,8 +1,11 @@
-"""LinkedIn logged-out pages. Search pagination is gone for guests (always the first 60 cards),
-so discovery = many narrow queries (keyword x location x filters) refined until a query returns <60."""
+"""LinkedIn logged-out pages. The /jobs/search page always serves the first 60 cards, but the guest
+seeMoreJobPostings endpoint pages with `start=` (10 cards a page, ~1000 deep, 400 beyond that), so
+discovery = page each (keyword x location) query to its end; only a query that hits the depth cap is
+split further along filter dimensions."""
 import itertools
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 from urllib.parse import quote
@@ -13,11 +16,14 @@ from crawler.boards.base import Board, Card, DetailResult
 from crawler.parse.normalize import html_to_text
 
 log = logging.getLogger("crawler")
-SEARCH = "https://www.linkedin.com/jobs/search?"
+SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
 DETAIL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/"
 UK_GEO = "101165590"
-PAGE_CAP = 60
-REFINE_MIN_NEW = 15      # a saturated query refines only if it yielded at least this many unseen UK cards
+PAGE_SIZE = 10
+DEPTH_CAP = 1000         # guest endpoint answers 400 from start=1000
+PAGE_DELAY = 1.5         # seconds between pages; ~0.3s drew a 429 after two pages
+STALE_PAGES = 3          # stop paging a query after this many consecutive pages with no unseen cards
+REFINE_MIN_NEW = 15      # a depth-capped query refines only if it yielded at least this many unseen UK cards
 UK_MARKERS = ("united kingdom", "england", "scotland", "wales", "northern ireland")
 
 KEYWORDS = [
@@ -65,12 +71,13 @@ class LinkedInBoard(Board):
         self.dropped_non_uk = 0
 
     # ---- discovery -------------------------------------------------------
-    def _query(self, client, kw, loc, extra: dict):
+    def _query(self, client, kw, loc, extra: dict, start=0):
         name, geo = _loc(loc)
         params = {"keywords": kw, "location": name if geo else f"{name}, United Kingdom"}
         if geo:
             params["geoId"] = geo
         params.update(extra)
+        params["start"] = start
         url = SEARCH + "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
         r = client.get(url, source=self.name)
         if r.status != 200 or r.blocked:
@@ -102,27 +109,34 @@ class LinkedInBoard(Board):
         return not location or any(m in location.lower() for m in UK_MARKERS)
 
     def _refine(self, client, kw, loc, extra, dims, seen, should_stop) -> Iterator[Card]:
-        """Run a query and yield unseen UK cards. Refine along the next filter dimension only when the
-        query is saturated (60 cards) AND still finds enough new jobs: refining mostly-seen queries
-        buys a search page per few new jobs."""
-        if should_stop():
-            return
-        cards = self._query(client, kw, loc, extra)
-        if cards is None:
-            return
-        unseen = [c for c in cards if c.source_job_id not in seen]
-        seen.update(c.source_job_id for c in cards)
-        fresh = [c for c in unseen if self._is_uk(c.extra.get("location"))]
-        for c in unseen:
-            if not self._is_uk(c.extra.get("location")):
-                self.dropped_non_uk += 1
-                log.debug("linkedin card dropped as non-UK: %r", c.extra.get("location"))
-        yield from fresh
-        if len(cards) < PAGE_CAP or not dims or len(fresh) < REFINE_MIN_NEW:
-            return
-        (key, values), rest = dims[0], dims[1:]
-        for v in values:
-            yield from self._refine(client, kw, loc, {**extra, key: v}, rest, seen, should_stop)
+        """Page a query to its end and yield unseen UK cards. Refine along the next filter dimension
+        only when the query hit the depth cap AND still found enough new jobs."""
+        fresh_total = pages_seen = stale = 0
+        for start in range(0, DEPTH_CAP, PAGE_SIZE):
+            if should_stop():
+                return
+            cards = self._query(client, kw, loc, extra, start)
+            if not cards:                      # blocked, error or end of results
+                break
+            pages_seen += 1
+            unseen = [c for c in cards if c.source_job_id not in seen]
+            seen.update(c.source_job_id for c in cards)
+            fresh = [c for c in unseen if self._is_uk(c.extra.get("location"))]
+            for c in unseen:
+                if not self._is_uk(c.extra.get("location")):
+                    self.dropped_non_uk += 1
+                    log.debug("linkedin card dropped as non-UK: %r", c.extra.get("location"))
+            fresh_total += len(fresh)
+            yield from fresh
+            stale = 0 if unseen else stale + 1
+            if stale >= STALE_PAGES:
+                return                         # mostly seen already: not worth deeper pages
+            time.sleep(PAGE_DELAY)
+        else:
+            if dims and fresh_total >= REFINE_MIN_NEW:
+                (key, values), rest = dims[0], dims[1:]
+                for v in values:
+                    yield from self._refine(client, kw, loc, {**extra, key: v}, rest, seen, should_stop)
 
     def cards(self, client, should_stop) -> Iterator[Card]:
         seen = set()

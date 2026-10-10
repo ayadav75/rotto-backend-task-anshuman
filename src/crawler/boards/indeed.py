@@ -51,8 +51,11 @@ class IndeedBoard(Board):
         for _ in range(2):
             if not self._ensure_key(client):
                 return None
+            key = self.api_key                # local copy: another worker may reset it concurrently
+            if not key:
+                continue
             r = client.post_json(GRAPHQL, {"query": query}, source=self.name, profile=PROFILE, headers={
-                "indeed-api-key": self.api_key, "indeed-co": "GB", "Origin": "https://uk.indeed.com",
+                "indeed-api-key": key, "indeed-co": "GB", "Origin": "https://uk.indeed.com",
                 "Referer": HOME, "content-type": "application/json"})
             if r.status in (401, 403) or r.blocked:
                 self.api_key = None          # refresh the key once, then give up

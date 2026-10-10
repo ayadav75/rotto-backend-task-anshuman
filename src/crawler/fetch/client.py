@@ -2,7 +2,9 @@
 import json
 import os
 import random
+import threading
 import time
+from collections import Counter
 import zlib
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -67,7 +69,15 @@ class Client:
         self.proxy = proxy_url()
         self.bytes_total = 0
         self.requests_total = 0
-        self.sessions = {}
+        self.requests_by_source = Counter()
+        self._lock = threading.Lock()          # counters + the shared request-log connection
+        self._local = threading.local()        # curl_cffi sessions are per thread
+
+    @property
+    def sessions(self):
+        if not hasattr(self._local, "sessions"):
+            self._local.sessions = {}
+        return self._local.sessions
 
     def _session(self, profile):
         if profile not in self.sessions:
@@ -83,14 +93,16 @@ class Client:
             sess.close()
 
     def _log(self, source, url, status, nbytes, blocked, reason, attempt):
-        self.requests_total += 1
-        self.bytes_total += nbytes or 0
-        if self.conn is not None:
-            self.conn.execute(
-                "INSERT INTO requests (run_id, source, url, status, bytes, blocked, block_reason, attempt)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                (self.run_id, source, url, status, nbytes, blocked, reason, attempt))
-            self.conn.commit()
+        with self._lock:
+            self.requests_total += 1
+            self.requests_by_source[source] += 1
+            self.bytes_total += nbytes or 0
+            if self.conn is not None:
+                self.conn.execute(
+                    "INSERT INTO requests (run_id, source, url, status, bytes, blocked, block_reason, attempt)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (self.run_id, source, url, status, nbytes, blocked, reason, attempt))
+                self.conn.commit()
 
     def get(self, url, source=None, headers=None, profile="chrome") -> Response:
         return self.request("GET", url, source=source, headers=headers, profile=profile)

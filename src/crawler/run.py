@@ -3,10 +3,12 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 
-from crawler.boards.base import Board
+from crawler.boards.base import Board, DetailResult
 from crawler.boards.indeed import IndeedBoard
 from crawler.boards.linkedin import LinkedInBoard
 from crawler.boards.reed import ReedBoard
@@ -25,8 +27,18 @@ STALE_AFTER = timedelta(days=2)       # not seen this long -> verify before trus
 STALE_CHECKS_PER_BOARD = int(os.environ.get("CRAWL_STALE_CHECKS", "500"))
 
 
+# Concurrent detail fetches per board (override: CRAWL_WORKERS or CRAWL_WORKERS_<BOARD>).
+DEFAULT_WORKERS = {"reed": 8, "linkedin": 8, "indeed": 4}
+
+
+def workers_for(name: str) -> int:
+    v = os.environ.get(f"CRAWL_WORKERS_{name.upper()}") or os.environ.get("CRAWL_WORKERS")
+    return max(1, int(v)) if v else DEFAULT_WORKERS.get(name, 4)
+
+
 class Budget:
-    """Global caps (time, proxy bytes) split evenly over the boards still to run; per-board request cap."""
+    """Global caps (wall-clock time, proxy bytes) shared by the boards, which run concurrently;
+    per-board request cap."""
 
     def __init__(self, n_boards):
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
@@ -34,19 +46,11 @@ class Budget:
         self.max_requests = int(os.environ.get("CRAWL_MAX_REQUESTS_PER_BOARD", "6000"))
         self.n_boards = n_boards
         self.stop_flag = False
-        self.board_deadline = self.deadline
-        self.board_bytes_limit = self.max_bytes
 
-    def start_board(self, index, client):
-        left = self.n_boards - index
-        now = time.time()
-        self.board_deadline = now + max(0.0, self.deadline - now) / left
-        self.board_bytes_limit = client.bytes_total + max(0.0, self.max_bytes - client.bytes_total) / left
-
-    def exhausted(self, client, board_start_requests) -> bool:
-        return (self.stop_flag or time.time() > self.board_deadline
-                or client.bytes_total > self.board_bytes_limit
-                or client.requests_total - board_start_requests > self.max_requests)
+    def exhausted(self, client, board) -> bool:
+        return (self.stop_flag or time.time() > self.deadline
+                or client.bytes_total > self.max_bytes
+                or client.requests_by_source[board] > self.max_requests)
 
 
 def _load_known(conn, source):
@@ -83,6 +87,7 @@ class Batch:
             observed_at=datetime.now(timezone.utc), source=self.source, discovered_ids=self.discovered,
             details=self.details, failed_ids=self.failed, removed_ids=self.removed,
             removed_reasons=self.reasons)))
+        self.conn.commit()                    # per-board connection: persist each batch, not just at exit
         if self.events:
             self.conn.cursor().executemany(
                 "INSERT INTO job_events (run_id, source, source_job_id, outcome, reason) VALUES (%s,%s,%s,%s,%s)",
@@ -94,8 +99,7 @@ class Batch:
 
 def crawl_board(board, client, conn, run_id, run_start, budget, totals: Counts, stats):
     known, skipped = _load_known(conn, board.name)
-    start_req = client.requests_total
-    stop = lambda: budget.exhausted(client, start_req)
+    stop = lambda: budget.exhausted(client, board.name)
     batch, now = Batch(conn, board.name, totals, run_id), datetime.now(timezone.utc)
 
     def handle(res, jid):
@@ -115,45 +119,78 @@ def crawl_board(board, client, conn, run_id, run_start, budget, totals: Counts, 
             batch.event(jid, "failed", res.reason)
             stats["failed"] += 1
 
-    for card in board.cards(client, stop):
-        jid = card.source_job_id
-        if jid in skipped:
-            continue
-        batch.discovered.append(jid)
-        k = known.get(jid)
-        if card.inline is not None:          # content arrived with the search result: free to apply
-            handle(card.inline, jid)
-        elif k is None:
-            if stop():
-                break
-            handle(board.detail(client, card), jid)
-        else:
-            signal_old, due, removed_at, _ = k
-            if card.expired:
-                batch.remove(jid, "expired:card_expiry_date")
-            elif removed_at is not None or card.signal != signal_old or (due and due <= now):
-                if not stop():               # refresh due: re-fetch detail (change signal or periodic)
-                    handle(board.detail(client, card), jid)
-        if len(batch) >= BATCH:
-            batch.flush()
-    batch.flush()
+    n_workers = workers_for(board.name)
+    pool = ThreadPoolExecutor(n_workers, thread_name_prefix=board.name)
+    pending = {}                              # future -> (job id, is_recheck); DB work stays on this thread
 
-    # Removal verification: absence from search is NOT evidence, so re-fetch stale live rows.
-    stale = conn.execute(
-        "SELECT source_job_id, url FROM jobs WHERE source=%s AND removed_at IS NULL AND last_seen_at < %s"
-        " ORDER BY last_seen_at LIMIT %s", (board.name, run_start - STALE_AFTER, STALE_CHECKS_PER_BOARD)).fetchall()
-    for jid, url in stale:
-        if budget.stop_flag or time.time() > budget.deadline:
-            break
-        res = board.check(client, jid, url)
-        if res.kind == "job":
-            batch.discovered.append(jid)     # still live
-            batch.event(jid, "verified_live", "recheck_ok")
-        if res.kind != "skip":
+    def finish(f):
+        jid, recheck = pending.pop(f)
+        try:
+            res = f.result()
+        except Exception:
+            log.exception("%s detail fetch crashed for %s", board.name, jid)
+            res = DetailResult("failed", reason="exception")
+        if recheck:
+            if res.kind == "job":
+                batch.discovered.append(jid)     # still live
+                batch.event(jid, "verified_live", "recheck_ok")
+            if res.kind != "skip":
+                handle(res, jid)
+        else:
             handle(res, jid)
         if len(batch) >= BATCH:
             batch.flush()
-    batch.flush()
+
+    def settle(max_pending):
+        while len(pending) > max_pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for f in done:
+                finish(f)
+        for f in [f for f in pending if f.done()]:
+            finish(f)
+
+    def submit(fn, jid, recheck=False):
+        pending[pool.submit(fn)] = (jid, recheck)
+        settle(2 * n_workers)
+
+    try:
+        for card in board.cards(client, stop):
+            jid = card.source_job_id
+            if jid in skipped:
+                continue
+            batch.discovered.append(jid)
+            k = known.get(jid)
+            if card.inline is not None:          # content arrived with the search result: free to apply
+                handle(card.inline, jid)
+            elif k is None:
+                if stop():
+                    break
+                submit(lambda c=card: board.detail(client, c), jid)
+            else:
+                signal_old, due, removed_at, _ = k
+                if card.expired:
+                    batch.remove(jid, "expired:card_expiry_date")
+                elif removed_at is not None or card.signal != signal_old or (due and due <= now):
+                    if not stop():               # refresh due: re-fetch detail (change signal or periodic)
+                        submit(lambda c=card: board.detail(client, c), jid)
+            if len(batch) >= BATCH:
+                batch.flush()
+        settle(0)
+        batch.flush()
+
+        # Removal verification: absence from search is NOT evidence, so re-fetch stale live rows.
+        stale = conn.execute(
+            "SELECT source_job_id, url FROM jobs WHERE source=%s AND removed_at IS NULL AND last_seen_at < %s"
+            " ORDER BY last_seen_at LIMIT %s",
+            (board.name, run_start - STALE_AFTER, STALE_CHECKS_PER_BOARD)).fetchall()
+        for jid, url in stale:
+            if budget.stop_flag or time.time() > budget.deadline:
+                break
+            submit(lambda j=jid, u=url: board.check(client, j, u), jid, recheck=True)
+        settle(0)
+        batch.flush()
+    finally:
+        pool.shutdown(wait=True)
 
 
 def build_report(conn, run_id, started, finished, totals, duplicates, client):
@@ -200,19 +237,32 @@ def main() -> int:
     client = Client(connect(), run_id)
     totals, status, duplicates = Counts(), "completed", 0
     try:
-        for i, board in enumerate(BOARDS):
-            if budget.stop_flag:
-                break
-            budget.start_board(i, client)
+        results = {}
+
+        def run_board(board):
+            board_conn, board_totals = connect(), Counts()
             stats = {"skipped": 0, "failed": 0}
-            log.info("crawling %s", board.name)
+            log.info("crawling %s with %d workers", board.name, workers_for(board.name))
             try:
-                crawl_board(board, client, conn, run_id, started, budget, totals, stats)
+                crawl_board(board, client, board_conn, run_id, started, budget, board_totals, stats)
+                results[board.name] = (board_totals, True)
             except Exception:
                 log.exception("board %s failed; keeping data saved so far", board.name)
+                results[board.name] = (board_totals, False)
+            finally:
+                board_conn.close()
+            log.info("%s done: %s requests, %.1f MB total so far", board.name,
+                     client.requests_by_source[board.name], client.bytes_total / 1e6)
+
+        threads = [threading.Thread(target=run_board, args=(b,), name=b.name) for b in BOARDS]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        for board_totals, ok in results.values():
+            totals.add(board_totals)
+            if not ok:
                 status = "partial"
-            log.info("%s done: %s requests so far, %.1f MB", board.name, client.requests_total,
-                     client.bytes_total / 1e6)
         if budget.stop_flag or time.time() > budget.deadline:
             status = "partial"
         try:
