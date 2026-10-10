@@ -34,6 +34,7 @@ class Run:
     details: list = field(default_factory=list)
     failed_ids: list = field(default_factory=list)
     removed_ids: list = field(default_factory=list)
+    removed_reasons: dict = field(default_factory=dict)   # source_job_id -> why (default: confirmed_removed)
 
 
 @dataclass
@@ -89,14 +90,17 @@ def apply_run(conn, run: Run) -> Counts:
             jid = f"{run.source}:{sid}"
             if jid in removed:
                 continue
-            conn.execute("UPDATE jobs SET last_seen_at=GREATEST(last_seen_at,%s), removed_at=NULL"
-                         " WHERE id=%s", (at, jid))
+            conn.execute("UPDATE jobs SET last_seen_at=GREATEST(last_seen_at,%s), removed_at=NULL,"
+                         " removal_reason=NULL WHERE id=%s", (at, jid))
         for job in run.details:
             job = {**job, "source": job.get("source") or run.source}
             job["id"] = f"{job['source']}:{job['source_job_id']}"
             _apply_detail(conn, job, at, counts, revive=job["id"] not in removed)
-        for jid in removed:
-            cur = conn.execute("UPDATE jobs SET removed_at=%s WHERE id=%s AND removed_at IS NULL", (at, jid))
+        for sid in run.removed_ids:
+            jid = f"{run.source}:{sid}"
+            reason = run.removed_reasons.get(str(sid)) or "confirmed_removed"
+            cur = conn.execute("UPDATE jobs SET removed_at=%s, removal_reason=%s"
+                               " WHERE id=%s AND removed_at IS NULL", (at, reason, jid))
             counts.jobs_removed += cur.rowcount
     return counts
 
@@ -128,7 +132,7 @@ def _apply_detail(conn, job, at, counts, revive):
         "UPDATE jobs SET " + ",".join(f"{c}=%({c})s" for c in sets) +
         ", content_hash=%(content_hash)s, last_seen_at=GREATEST(last_seen_at,%(at)s),"
         " last_detail_fetched_at=%(at)s, next_detail_due_at=%(due)s"
-        + (", removed_at=NULL" if revive else "") + " WHERE id=%(id)s", vals)
+        + (", removed_at=NULL, removal_reason=NULL" if revive else "") + " WHERE id=%(id)s", vals)
 
 
 def _log_diff(conn, job):

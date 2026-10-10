@@ -59,40 +59,60 @@ def _load_known(conn, source):
 class Batch:
     """Collects observations for one board and applies them through the shared apply_run()."""
 
-    def __init__(self, conn, source, totals):
-        self.conn, self.source, self.totals = conn, source, totals
+    def __init__(self, conn, source, totals, run_id):
+        self.conn, self.source, self.totals, self.run_id = conn, source, totals, run_id
         self.discovered, self.details, self.failed, self.removed = [], [], [], []
+        self.reasons, self.events = {}, []
+
+    def event(self, jid, outcome, reason):
+        """Record why the crawler decided what it did (removed / failed / skipped / verified_live)."""
+        self.events.append((self.run_id, self.source, jid, outcome, reason))
+
+    def remove(self, jid, reason):
+        self.removed.append(jid)
+        self.reasons[str(jid)] = reason
+        self.event(jid, "removed", reason)
 
     def __len__(self):
         return len(self.discovered) + len(self.details) + len(self.removed)
 
     def flush(self):
-        if not (self.discovered or self.details or self.failed or self.removed):
+        if not (self.discovered or self.details or self.failed or self.removed or self.events):
             return
         self.totals.add(apply_run(self.conn, Run(
             observed_at=datetime.now(timezone.utc), source=self.source, discovered_ids=self.discovered,
-            details=self.details, failed_ids=self.failed, removed_ids=self.removed)))
+            details=self.details, failed_ids=self.failed, removed_ids=self.removed,
+            removed_reasons=self.reasons)))
+        if self.events:
+            self.conn.cursor().executemany(
+                "INSERT INTO job_events (run_id, source, source_job_id, outcome, reason) VALUES (%s,%s,%s,%s,%s)",
+                self.events)
+            self.conn.commit()
         self.discovered, self.details, self.failed, self.removed = [], [], [], []
+        self.reasons, self.events = {}, []
 
 
-def crawl_board(board, client, conn, run_start, budget, totals: Counts, stats):
+def crawl_board(board, client, conn, run_id, run_start, budget, totals: Counts, stats):
     known, skipped = _load_known(conn, board.name)
     start_req = client.requests_total
     stop = lambda: budget.exhausted(client, start_req)
-    batch, now = Batch(conn, board.name, totals), datetime.now(timezone.utc)
+    batch, now = Batch(conn, board.name, totals, run_id), datetime.now(timezone.utc)
 
     def handle(res, jid):
         if res.kind == "job":
             batch.details.append(res.job)
         elif res.kind in ("expired", "gone"):
-            batch.removed.append(jid)
+            batch.remove(jid, f"{res.kind}:{res.reason}")
         elif res.kind == "skip":
-            conn.execute("INSERT INTO skipped (source, source_job_id, reason) VALUES (%s,%s,%s)"
-                         " ON CONFLICT DO NOTHING", (board.name, jid, res.reason))
-            conn.commit()
+            if res.permanent:                 # never fetch this listing again
+                conn.execute("INSERT INTO skipped (source, source_job_id, reason) VALUES (%s,%s,%s)"
+                             " ON CONFLICT DO NOTHING", (board.name, jid, res.reason))
+                conn.commit()
+            batch.event(jid, "skipped", res.reason)
             stats["skipped"] += 1
         else:
             batch.failed.append(jid)
+            batch.event(jid, "failed", res.reason)
             stats["failed"] += 1
 
     for card in board.cards(client, stop):
@@ -110,7 +130,7 @@ def crawl_board(board, client, conn, run_start, budget, totals: Counts, stats):
         else:
             signal_old, due, removed_at, _ = k
             if card.expired:
-                batch.removed.append(jid)
+                batch.remove(jid, "expired:card_expiry_date")
             elif removed_at is not None or card.signal != signal_old or (due and due <= now):
                 if not stop():               # refresh due: re-fetch detail (change signal or periodic)
                     handle(board.detail(client, card), jid)
@@ -128,6 +148,7 @@ def crawl_board(board, client, conn, run_start, budget, totals: Counts, stats):
         res = board.check(client, jid, url)
         if res.kind == "job":
             batch.discovered.append(jid)     # still live
+            batch.event(jid, "verified_live", "recheck_ok")
         if res.kind != "skip":
             handle(res, jid)
         if len(batch) >= BATCH:
@@ -144,10 +165,21 @@ def build_report(conn, run_id, started, finished, totals, duplicates, client):
     total, nbytes = conn.execute("SELECT count(*), coalesce(sum(bytes),0) FROM requests WHERE run_id=%s",
                                  (run_id,)).fetchone()
     by_source = dict(conn.execute("SELECT source, count(*) FROM jobs WHERE removed_at IS NULL GROUP BY source"))
+    decisions = {}
+    for outcome, reason, n in conn.execute(
+            "SELECT outcome, coalesce(reason,''), count(*) FROM job_events WHERE run_id=%s GROUP BY 1,2 ORDER BY 1,2",
+            (run_id,)):
+        decisions.setdefault(outcome, {})[reason] = n
+    requests_by_source = {}
+    for src, n, blk in conn.execute(
+            "SELECT source, count(*), count(*) FILTER (WHERE blocked) FROM requests WHERE run_id=%s GROUP BY 1",
+            (run_id,)):
+        requests_by_source[src] = {"requests": n, "blocked": blk}
     return {
         "started_at": started.isoformat(), "finished_at": finished.isoformat(),
         "requests_total": total, "requests_blocked": blocked, "requests_by_status": by_status,
-        "blocked_reasons": reasons, "jobs_by_source": by_source,
+        "blocked_reasons": reasons, "jobs_by_source": by_source, "decision_reasons": decisions,
+        "requests_by_source": requests_by_source,
         "duplicates_linked": duplicates, "jobs_new": totals.jobs_new,
         "jobs_removed": totals.jobs_removed, "jobs_changed": totals.jobs_changed,
         "estimated_proxy_gb": round(float(nbytes) / 1e9, 4),
@@ -175,7 +207,7 @@ def main() -> int:
             stats = {"skipped": 0, "failed": 0}
             log.info("crawling %s", board.name)
             try:
-                crawl_board(board, client, conn, started, budget, totals, stats)
+                crawl_board(board, client, conn, run_id, started, budget, totals, stats)
             except Exception:
                 log.exception("board %s failed; keeping data saved so far", board.name)
                 status = "partial"

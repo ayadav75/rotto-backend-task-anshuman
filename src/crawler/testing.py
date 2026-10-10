@@ -39,7 +39,8 @@ def _to_run(r: dict) -> Run:
     return Run(observed_at=r["observed_at"], source=r["source"],
                discovered_ids=r.get("discovered_source_job_ids", []), details=r.get("details", []),
                failed_ids=r.get("failed_detail_source_job_ids", []),
-               removed_ids=r.get("confirmed_removed_source_job_ids", []))
+               removed_ids=r.get("confirmed_removed_source_job_ids", []),
+               removed_reasons=r.get("removal_reasons", {}))
 
 
 def _snapshot(conn):
@@ -133,7 +134,8 @@ def main() -> int:
     paths = [os.environ.get("FIXTURE_PATH", "tests/fixtures/lifecycle.json")]
     if EDGE_FIXTURE.exists():
         paths.append(str(EDGE_FIXTURE))
-    errors = []
+    from crawler.unit_checks import run as unit_checks
+    errors = unit_checks()
     for n, p in enumerate(paths):
         errors += run_fixture(p, with_dedupe=(n == 0))
     for e in errors:

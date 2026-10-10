@@ -18,9 +18,13 @@ GRAPHQL = "https://apis.indeed.com/graphql"
 PROFILE = "safari17_2_ios"          # the only profile that clears the search page for us
 LIMIT = 100
 FIELDS = ("key title expired datePublished "
-          "location{countryCode formatted{long} } employer{name} "
-          "compensation{baseSalary{unitOfWork range{... on Range{min max}}} currencyCode} "
+          "location{countryCode formatted{long} } employer{name dossier{images{squareLogoUrl}}} "
+          "compensation{baseSalary{unitOfWork range{... on Range{min max} ... on AtLeast{min} ... on AtMost{max} ... on Exactly{value}}} currencyCode} "
           "attributes{label} description{text}")
+# A bare "Remote" location is not UK evidence (the posting is only listed on the UK site), so keep
+# such jobs only when title or description says UK workers are eligible.
+UK_EVIDENCE = re.compile(r"\b(uk|u\.k\.|united kingdom|great britain|scotland|northern ireland)\b"
+                         r"|(?<!new )\bengland\b|(?<!new south )\bwales\b|£", re.I)
 PERIODS = {"YEAR": "year", "DAY": "day", "HOUR": "hour"}
 
 
@@ -101,6 +105,10 @@ class IndeedBoard(Board):
         text = ((job.get("description") or {}).get("text") or "").strip()
         if not text or not job.get("title"):
             return DetailResult("failed", reason="empty_description")
+        place = ((loc.get("formatted") or {}).get("long") or "").strip().lower()
+        if place in ("", "remote") and not UK_EVIDENCE.search(job["title"] + "\n" + text):
+            # not permanent: the data arrives free with each search, so re-evaluate if the text changes
+            return DetailResult("skip", reason="remote_without_uk_evidence", permanent=False)
         labels = {a["label"].lower() for a in job.get("attributes") or []}
         work_type = next((wt for key, wt in (("contract", "contract"), ("temporary", "temporary"),
                                              ("part-time", "part time"), ("full-time", "full time"))
@@ -110,13 +118,16 @@ class IndeedBoard(Board):
         base = comp.get("baseSalary") or {}
         if comp.get("currencyCode") == "GBP" and base.get("unitOfWork") in PERIODS:
             rng = base.get("range") or {}
-            smin, smax = (round(rng[k], 2) if rng.get(k) else None for k in ("min", "max"))
+            # Range -> min+max, AtLeast -> min only, AtMost -> max only, Exactly -> value for both
+            lo, hi = rng.get("min", rng.get("value")), rng.get("max", rng.get("value"))
+            smin, smax = (round(v, 2) if v else None for v in (lo, hi))
             period = PERIODS[base["unitOfWork"]] if (smin or smax) else None
+        logo = (((job.get("employer") or {}).get("dossier") or {}).get("images") or {}).get("squareLogoUrl")
         published = job.get("datePublished")
         return DetailResult("job", {
             "id": f"indeed:{job['key']}", "source": "indeed", "source_job_id": job["key"],
             "url": f"https://uk.indeed.com/viewjob?jk={job['key']}", "title": job["title"].strip(),
-            "company": (job.get("employer") or {}).get("name"), "company_logo_url": None,
+            "company": (job.get("employer") or {}).get("name"), "company_logo_url": logo,
             "location": (loc.get("formatted") or {}).get("long"), "work_type": work_type,
             "salary_min": smin, "salary_max": smax, "salary_period": period,
             "posted_at": datetime.fromtimestamp(published / 1000, tz=timezone.utc) if published else None,

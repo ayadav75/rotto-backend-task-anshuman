@@ -1,6 +1,7 @@
 """LinkedIn logged-out pages. Search pagination is gone for guests (always the first 60 cards),
 so discovery = many narrow queries (keyword x location x filters) refined until a query returns <60."""
 import itertools
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -11,10 +12,12 @@ from selectolax.parser import HTMLParser
 from crawler.boards.base import Board, Card, DetailResult
 from crawler.parse.normalize import html_to_text
 
+log = logging.getLogger("crawler")
 SEARCH = "https://www.linkedin.com/jobs/search?"
 DETAIL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/"
 UK_GEO = "101165590"
 PAGE_CAP = 60
+REFINE_MIN_NEW = 15      # a saturated query refines only if it yielded at least this many unseen UK cards
 UK_MARKERS = ("united kingdom", "england", "scotland", "wales", "northern ireland")
 
 KEYWORDS = [
@@ -58,6 +61,9 @@ def _text(node):
 class LinkedInBoard(Board):
     name = "linkedin"
 
+    def __init__(self):
+        self.dropped_non_uk = 0
+
     # ---- discovery -------------------------------------------------------
     def _query(self, client, kw, loc, extra: dict):
         name, geo = _loc(loc)
@@ -90,31 +96,46 @@ class LinkedInBoard(Board):
                 "logo": img.attributes.get("data-delayed-url") if img else None,
             })
 
-    def _refine(self, client, kw, loc, extra, dims, out, should_stop) -> Iterator[Card]:
-        """Run a query; if saturated (60 cards), refine along the next filter dimension."""
+    @staticmethod
+    def _is_uk(location):
+        """Card-level UK check, so non-UK cards never cost a detail fetch. Unknown location -> keep."""
+        return not location or any(m in location.lower() for m in UK_MARKERS)
+
+    def _refine(self, client, kw, loc, extra, dims, seen, should_stop) -> Iterator[Card]:
+        """Run a query and yield unseen UK cards. Refine along the next filter dimension only when the
+        query is saturated (60 cards) AND still finds enough new jobs: refining mostly-seen queries
+        buys a search page per few new jobs."""
         if should_stop():
             return
         cards = self._query(client, kw, loc, extra)
         if cards is None:
             return
-        yield from cards
-        if len(cards) < PAGE_CAP or not dims:
+        unseen = [c for c in cards if c.source_job_id not in seen]
+        seen.update(c.source_job_id for c in cards)
+        fresh = [c for c in unseen if self._is_uk(c.extra.get("location"))]
+        for c in unseen:
+            if not self._is_uk(c.extra.get("location")):
+                self.dropped_non_uk += 1
+                log.debug("linkedin card dropped as non-UK: %r", c.extra.get("location"))
+        yield from fresh
+        if len(cards) < PAGE_CAP or not dims or len(fresh) < REFINE_MIN_NEW:
             return
         (key, values), rest = dims[0], dims[1:]
         for v in values:
-            yield from self._refine(client, kw, loc, {**extra, key: v}, rest, out, should_stop)
+            yield from self._refine(client, kw, loc, {**extra, key: v}, rest, seen, should_stop)
 
     def cards(self, client, should_stop) -> Iterator[Card]:
         seen = set()
         dims = [("f_TPR", TPR), ("f_JT", JOB_TYPES), ("f_WT", WORK_MODES)]
         # broad locations first so the budget buys breadth before depth
-        for loc, kw in itertools.product(LOCATIONS, KEYWORDS):
-            for c in self._refine(client, kw, loc, {}, dims, None, should_stop):
-                if c.source_job_id not in seen:
-                    seen.add(c.source_job_id)
-                    yield c
-            if should_stop():
-                return
+        try:
+            for loc, kw in itertools.product(LOCATIONS, KEYWORDS):
+                yield from self._refine(client, kw, loc, {}, dims, seen, should_stop)
+                if should_stop():
+                    return
+        finally:
+            log.info("linkedin: %d unique cards seen, %d dropped as non-UK before any detail fetch",
+                     len(seen), self.dropped_non_uk)
 
     # ---- detail ----------------------------------------------------------
     def detail(self, client, card: Card) -> DetailResult:

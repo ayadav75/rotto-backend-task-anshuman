@@ -19,6 +19,7 @@ class DetailResult:
     kind: str                      # "job" | "expired" | "gone" | "failed" | "skip"
     job: dict | None = None
     reason: str | None = None      # why skipped/failed (e.g. "non-uk")
+    permanent: bool = True         # for "skip": False = look at this listing again next run
 
 
 class Board:

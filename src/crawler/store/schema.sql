@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   source_signal text
 );
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS source_signal text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS removal_reason text;
 CREATE INDEX IF NOT EXISTS jobs_source_idx ON jobs (source);
 CREATE INDEX IF NOT EXISTS jobs_canonical_idx ON jobs (canonical_job_id);
 
@@ -53,3 +54,15 @@ CREATE TABLE IF NOT EXISTS skipped (
   at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (source, source_job_id)
 );
+
+-- one row per non-routine liveness decision (why a job was removed, skipped, failed or re-verified)
+CREATE TABLE IF NOT EXISTS job_events (
+  id bigserial PRIMARY KEY,
+  run_id int,
+  ts timestamptz NOT NULL DEFAULT now(),
+  source text NOT NULL,
+  source_job_id text NOT NULL,
+  outcome text NOT NULL,      -- removed | failed | skipped | verified_live
+  reason text
+);
+CREATE INDEX IF NOT EXISTS job_events_run_idx ON job_events (run_id);

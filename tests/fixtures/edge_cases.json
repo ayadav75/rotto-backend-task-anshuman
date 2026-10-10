@@ -230,9 +230,13 @@
       "first_seen_at": "2026-10-02T09:00:00Z",
       "last_seen_at": "2026-10-02T09:00:00Z",
       "removed_at": "2026-10-02T12:00:00Z",
-      "content_hash_equals_run": "seed"
+      "content_hash_equals_run": "seed",
+      "removal_reason": "gone:http_404"
      }
     }
+   },
+   "removal_reasons": {
+    "3": "gone:http_404"
    }
   },
   {
@@ -288,7 +292,8 @@
       "first_seen_at": "2026-10-02T09:00:00Z",
       "last_seen_at": "2026-10-02T13:00:00Z",
       "removed_at": null,
-      "content_hash_equals_run": null
+      "content_hash_equals_run": null,
+      "removal_reason": null
      }
     }
    }
@@ -324,7 +329,8 @@
       "first_seen_at": "2026-10-02T09:00:00Z",
       "last_seen_at": "2026-10-02T13:00:00Z",
       "removed_at": "2026-10-02T14:00:00Z",
-      "content_hash_equals_run": "seed"
+      "content_hash_equals_run": "seed",
+      "removal_reason": "confirmed_removed"
      },
      "indeed:3": {
       "first_seen_at": "2026-10-02T09:00:00Z",
