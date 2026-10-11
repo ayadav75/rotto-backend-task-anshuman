@@ -70,6 +70,7 @@ class Client:
         self.bytes_total = 0
         self.requests_total = 0
         self.requests_by_source = Counter()
+        self.bytes_by_source = Counter()
         self.ok_by_source = Counter()          # 200s that were not classified as blocked
         self.fail_streak = Counter()           # consecutive failed/blocked requests per source
         self._lock = threading.Lock()          # counters + the shared request-log connection
@@ -98,6 +99,7 @@ class Client:
         with self._lock:
             self.requests_total += 1
             self.requests_by_source[source] += 1
+            self.bytes_by_source[source] += nbytes or 0
             if status == 200 and not blocked:
                 self.ok_by_source[source] += 1
                 self.fail_streak[source] = 0

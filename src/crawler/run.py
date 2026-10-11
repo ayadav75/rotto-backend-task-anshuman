@@ -37,8 +37,9 @@ def workers_for(name: str) -> int:
 
 
 class Budget:
-    """Global caps (wall-clock time, proxy bytes) shared by the boards, which run concurrently;
-    per-board request cap."""
+    """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split evenly so a
+    fast board cannot starve the others; a board that finishes early releases its unused share to the rest.
+    Per-board request cap."""
 
     def __init__(self, n_boards):
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
@@ -48,10 +49,20 @@ class Budget:
         self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
         self.n_boards = n_boards
         self.stop_flag = False
+        self.finished = set()
+
+    def finish(self, board):
+        self.finished.add(board)
+
+    def byte_allowance(self, client) -> float:
+        done = set(self.finished)
+        left = self.max_bytes - sum(client.bytes_by_source[b] for b in done)
+        return max(0.0, left) / max(1, self.n_boards - len(done))
 
     def exhausted(self, client, board) -> bool:
         return (self.stop_flag or time.time() > self.deadline
                 or client.bytes_total > self.max_bytes
+                or client.bytes_by_source[board] > self.byte_allowance(client)
                 or client.requests_by_source[board] > self.max_requests
                 or client.fail_streak[board] >= self.max_fail_streak)
 
@@ -265,6 +276,7 @@ def main() -> int:
                 results[board.name] = (board_totals, False)
             finally:
                 board_conn.close()
+                budget.finish(board.name)
             log.info("%s done: %s requests, %.1f MB total so far", board.name,
                      client.requests_by_source[board.name], client.bytes_total / 1e6)
 

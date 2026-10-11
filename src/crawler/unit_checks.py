@@ -102,5 +102,16 @@ def run() -> list[str]:
              mk("linkedin:3", "linkedin", "Chef", 3, "indeed:3"), mk("reed:4", "reed", "Chef", 4, "indeed:3")]
     check("a split cluster keeps its id on the oldest part only", assign_canonical(split),
           {"indeed:3": "indeed:3", "reed:3": "indeed:3", "linkedin:3": "linkedin:3", "reed:4": "linkedin:3"})
+    from collections import Counter
+    from crawler.run import Budget
+    bud, fake = Budget(3), type("C", (), {"bytes_by_source": Counter(), "bytes_total": 0, "requests_by_source": Counter(),
+                                          "fail_streak": Counter()})()
+    bud.max_bytes = 3000.0
+    check("byte budget split evenly across boards", bud.byte_allowance(fake), 1000.0)
+    fake.bytes_by_source["indeed"] = 400; bud.finish("indeed")
+    check("a finished board releases its unused share", bud.byte_allowance(fake), 1300.0)
+    fake.bytes_by_source["reed"] = 1500; fake.bytes_total = 1900
+    check("a board over its share is stopped", bud.exhausted(fake, "reed"), True)
+    check("another board under its share keeps going", bud.exhausted(fake, "linkedin"), False)
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs
