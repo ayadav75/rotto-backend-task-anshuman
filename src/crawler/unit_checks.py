@@ -103,20 +103,16 @@ def run() -> list[str]:
     check("a split cluster keeps its id on the oldest part only", assign_canonical(split),
           {"indeed:3": "indeed:3", "reed:3": "indeed:3", "linkedin:3": "linkedin:3", "reed:4": "linkedin:3"})
     from collections import Counter
-    from crawler.run import Budget, parse_weights
-    check("weights parse", parse_weights("indeed=3, linkedin=10,reed=87"), {"indeed": 3.0, "linkedin": 10.0, "reed": 87.0})
+    from crawler.run import Budget
     names = ["indeed", "linkedin", "reed"]
     fake = type("C", (), {"bytes_by_source": Counter(), "bytes_total": 0, "requests_by_source": Counter(),
                           "fail_streak": Counter()})()
-    bud = Budget(names); bud.max_bytes = 3000.0; bud.weights = {}
-    check("default byte budget splits evenly", bud.byte_allowance(fake, "reed"), 1000.0)
+    bud = Budget(names); bud.max_bytes = 3000.0
+    check("byte budget splits evenly across boards", bud.byte_allowance(fake), 1000.0)
     fake.bytes_by_source["indeed"] = 400; bud.finish("indeed")
-    check("a finished board releases its unused share", bud.byte_allowance(fake, "reed"), 1300.0)
+    check("a finished board releases its unused share", bud.byte_allowance(fake), 1300.0)
     fake.bytes_by_source["reed"] = 1500; fake.bytes_total = 1900
     check("a board over its share is stopped", bud.exhausted(fake, "reed"), True)
     check("another board under its share keeps going", bud.exhausted(fake, "linkedin"), False)
-    w, idle = Budget(names), type("C", (), {"bytes_by_source": Counter()})()
-    w.max_bytes = 3000.0; w.weights = parse_weights("indeed=3,linkedin=10,reed=87")
-    check("weighted split follows the weights", [round(w.byte_allowance(idle, n)) for n in names], [90, 300, 2610])
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs

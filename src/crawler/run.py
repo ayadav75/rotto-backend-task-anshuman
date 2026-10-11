@@ -36,19 +36,10 @@ def workers_for(name: str) -> int:
     return max(1, int(v)) if v else DEFAULT_WORKERS.get(name, 4)
 
 
-def parse_weights(spec: str) -> dict:
-    """'indeed=3,linkedin=10,reed=87' -> {'indeed': 3.0, ...}; boards not listed weigh 1."""
-    out = {}
-    for part in filter(None, (spec or "").split(",")):
-        name, _, val = part.partition("=")
-        out[name.strip()] = float(val)
-    return out
-
-
 class Budget:
-    """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split by weight
-    (CRAWL_BYTE_WEIGHTS, default equal) so a fast or expensive board cannot starve the others; a board that
-    finishes early releases its unused share to the rest. Per-board request cap."""
+    """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split evenly so a
+    fast board cannot starve the others; a board that finishes early releases its unused share to the rest.
+    Per-board request cap."""
 
     def __init__(self, boards):
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
@@ -57,24 +48,21 @@ class Budget:
         self.max_fail_streak = int(os.environ.get("CRAWL_MAX_FAIL_STREAK", "40"))   # consecutive failures -> give up on a board
         self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
         self.boards = list(boards)
-        self.weights = parse_weights(os.environ.get("CRAWL_BYTE_WEIGHTS", ""))
         self.stop_flag = False
         self.finished = set()
 
     def finish(self, board):
         self.finished.add(board)
 
-    def byte_allowance(self, client, board) -> float:
+    def byte_allowance(self, client) -> float:
         done = set(self.finished)
         left = self.max_bytes - sum(client.bytes_by_source[b] for b in done)
-        active = [b for b in self.boards if b not in done] or [board]
-        total = sum(self.weights.get(b, 1.0) for b in active)
-        return max(0.0, left) * self.weights.get(board, 1.0) / total
+        return max(0.0, left) / max(1, len(self.boards) - len(done))
 
     def exhausted(self, client, board) -> bool:
         return (self.stop_flag or time.time() > self.deadline
                 or client.bytes_total > self.max_bytes
-                or client.bytes_by_source[board] > self.byte_allowance(client, board)
+                or client.bytes_by_source[board] > self.byte_allowance(client)
                 or client.requests_by_source[board] > self.max_requests
                 or client.fail_streak[board] >= self.max_fail_streak)
 
