@@ -114,5 +114,15 @@ def run() -> list[str]:
     fake.bytes_by_source["reed"] = 1500; fake.bytes_total = 1900
     check("a board over its share is stopped", bud.exhausted(fake, "reed"), True)
     check("another board under its share keeps going", bud.exhausted(fake, "linkedin"), False)
+    import os
+    for name in ("CRAWL_MAX_MINUTES", "CRAWL_MAX_GB", "CRAWL_MAX_REQUESTS_PER_BOARD"):
+        os.environ.pop(name, None)
+    open_bud = Budget(names)
+    check("limits are off by default", (open_bud.deadline, open_bud.max_bytes, open_bud.max_requests),
+          (float("inf"), float("inf"), float("inf")))
+    check("an unlimited budget never stops a board", open_bud.exhausted(fake, "reed"), False)
+    os.environ["CRAWL_MAX_GB"] = "2"
+    check("a set limit still applies", Budget(names).max_bytes, 2e9)
+    os.environ.pop("CRAWL_MAX_GB")
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs

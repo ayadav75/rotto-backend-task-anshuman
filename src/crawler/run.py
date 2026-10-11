@@ -36,15 +36,21 @@ def workers_for(name: str) -> int:
     return max(1, int(v)) if v else DEFAULT_WORKERS.get(name, 4)
 
 
+def _limit(name: str, scale: float = 1.0) -> float:
+    """Read a budget from the environment. Unset, empty or 0 means no limit."""
+    value = float(os.environ.get(name) or 0)
+    return value * scale if value > 0 else float("inf")
+
+
 class Budget:
     """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split evenly so a
     fast board cannot starve the others; a board that finishes early releases its unused share to the rest.
-    Per-board request cap."""
+    Per-board request cap. Every limit is off by default (see `_limit`)."""
 
     def __init__(self, boards):
-        self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
-        self.max_bytes = float(os.environ.get("CRAWL_MAX_GB", "2")) * 1e9
-        self.max_requests = int(os.environ.get("CRAWL_MAX_REQUESTS_PER_BOARD", "6000"))
+        self.deadline = time.time() + _limit("CRAWL_MAX_MINUTES", 60)
+        self.max_bytes = _limit("CRAWL_MAX_GB", 1e9)
+        self.max_requests = _limit("CRAWL_MAX_REQUESTS_PER_BOARD")
         self.max_fail_streak = int(os.environ.get("CRAWL_MAX_FAIL_STREAK", "40"))   # consecutive failures -> give up on a board
         self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
         self.boards = list(boards)
