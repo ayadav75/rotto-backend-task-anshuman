@@ -11,7 +11,14 @@ from rapidfuzz import fuzz
 LEGAL = {"ltd", "limited", "plc", "llp", "llc", "inc", "uk", "group", "the", "company", "co", "services",
          "holdings", "gb", "t", "a"}
 CITY_ALIASES = {"greater london": "london", "city of london": "london", "westminster": "london"}
-TITLE_NOISE = re.compile(r"\(.*?\)|\[.*?\]|\b(m/f/d|f/m/d|ref[:\s]*\w+|job id[:\s]*\w+)\b", re.I)
+TITLE_NOISE = re.compile(r"\b(m/f/d|f/m/d|ref[:\s]*\w+|job id[:\s]*\w+)\b", re.I)
+# Parenthesised text usually names the actual role ("Engineer (Backend)"), so it is kept unless it is
+# only boilerplate such as "(m/f/d)", "(Remote)", "(Permanent)" or a reference number.
+BRACKETED = re.compile(r"[\(\[]([^\)\]]*)[\)\]]")
+BOILERPLATE = re.compile(
+    r"^(?:\W|\d|m/f/d|f/m/d|remote|hybrid|uk|gb|united kingdom|permanent|temporary|temp|contract|full[- ]?time|"
+    r"part[- ]?time|fixed[- ]?term|ftc|urgent|new|ref\w*|job id\w*|[a-z]{0,3}\d+\w*)+$", re.I)
+SAME_BOARD_TITLE_MIN = 90     # two copies from one board may share a cluster only if their titles are this similar
 DESC_CHARS = 1500
 
 
@@ -31,7 +38,8 @@ def norm_city(loc):
 
 
 def norm_title(t):
-    t = TITLE_NOISE.sub(" ", t.lower())
+    t = BRACKETED.sub(lambda m: " " if BOILERPLATE.match(m.group(1).strip()) else f" {m.group(1)} ", t.lower())
+    t = TITLE_NOISE.sub(" ", t)
     return " ".join(re.findall(r"[a-z0-9]+", t))
 
 
@@ -56,6 +64,22 @@ def is_match(a, b) -> bool:
 class UnionFind:
     def __init__(self):
         self.parent = {}
+        self.titles = {}          # root -> {source: [normalised titles]}, to veto merges of distinct roles
+
+    def register(self, x, source, title):
+        self.find(x)
+        self.titles.setdefault(x, {}).setdefault(source, []).append(title)
+
+    def compatible(self, a, b):
+        """A cluster may hold several copies from one board (reposts) but never two different roles."""
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return True
+        ta, tb = self.titles.get(ra, {}), self.titles.get(rb, {})
+        for src in ta.keys() & tb.keys():
+            if any(fuzz.token_sort_ratio(x, y) < SAME_BOARD_TITLE_MIN for x in ta[src] for y in tb[src]):
+                return False
+        return True
 
     def find(self, x):
         self.parent.setdefault(x, x)
@@ -65,7 +89,12 @@ class UnionFind:
         return x
 
     def union(self, a, b):
-        self.parent[self.find(a)] = self.find(b)
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return
+        self.parent[ra] = rb
+        for src, ts in self.titles.pop(ra, {}).items():
+            self.titles.setdefault(rb, {}).setdefault(src, []).extend(ts)
 
 
 def build_clusters(rows):
@@ -82,6 +111,8 @@ def build_clusters(rows):
             # company-less rows are matched against everything in the city sharing a title prefix
             blocks[("t", p["city"], " ".join(p["title"].split()[:2]))].append(p)
     uf = UnionFind()
+    for p in prepared.values():
+        uf.register(p["id"], p["source"], p["title"])
     for key, members in blocks.items():
         if len({m["source"] for m in members}) < 2 or len(members) > 600:
             continue
@@ -89,12 +120,35 @@ def build_clusters(rows):
             for b in members[i + 1:]:
                 if key[0] == "t" and a["company"] and b["company"] and a["company"] != b["company"]:
                     continue
-                if is_match(a, b):
+                if is_match(a, b) and uf.compatible(a["id"], b["id"]):
                     uf.union(a["id"], b["id"])
     groups = defaultdict(list)
     for jid in list(uf.parent):
         groups[uf.find(jid)].append(jid)
     return [g for g in groups.values() if len(g) > 1]
+
+
+def assign_canonical(data):
+    """data: dicts with id, source, title, company, location, description, canonical (stored value or None),
+    first (first_seen_at). Returns {id: canonical_job_id}.
+
+    Clusters are recomputed from scratch on every run, so a link made under older rules is dropped as soon as
+    the current rules no longer support it. Stored canonical ids only keep ids stable: an unchanged cluster
+    keeps the canonical id of its oldest member, and when a cluster splits, the oldest part keeps the old id
+    while each other part falls back to the id of its own oldest member."""
+    by_id = {d["id"]: d for d in data}
+    canon = {d["id"]: d["id"] for d in data}                   # default: a job is its own canonical copy
+    claimed = set()
+    clusters = sorted(build_clusters(data), key=lambda c: min((by_id[m]["first"], m) for m in c))
+    for cluster in clusters:
+        oldest = min(cluster, key=lambda m: (by_id[m]["first"], m))
+        target = by_id[oldest]["canonical"] or oldest
+        if target in claimed:                                  # another cluster already owns this id (split)
+            target = oldest
+        claimed.add(target)
+        for m in cluster:
+            canon[m] = target
+    return canon
 
 
 def link_duplicates(conn) -> int:
@@ -104,22 +158,7 @@ def link_duplicates(conn) -> int:
     ).fetchall()
     data = [dict(zip(("id", "source", "title", "company", "location", "description", "canonical", "first"), r))
             for r in rows]
-    by_id = {d["id"]: d for d in data}
-    canon = {d["id"]: d["canonical"] or d["id"] for d in data}      # default: own id
-    # existing links are kept: rows already sharing a canonical id stay together
-    existing = defaultdict(list)
-    for d in data:
-        existing[canon[d["id"]]].append(d["id"])
-    clusters = build_clusters([{**d, "description": d["description"]} for d in data])
-    for cluster in clusters:
-        members = set(cluster)
-        for c in {canon[m] for m in cluster}:
-            members.update(existing[c])
-        oldest = min(members, key=lambda m: (by_id[m]["first"], m))
-        # keep the canonical id of the oldest member (already stable), else its own id
-        target = canon[oldest]
-        for m in members:
-            canon[m] = target
+    canon = assign_canonical(data)
     changes = [(canon[d["id"]], d["id"]) for d in data if canon[d["id"]] != d["canonical"]]
     with conn.transaction():
         conn.cursor().executemany("UPDATE jobs SET canonical_job_id=%s WHERE id=%s", changes)

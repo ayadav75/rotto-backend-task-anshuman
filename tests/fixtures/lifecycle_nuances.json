@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "description": "Focused lifecycle cases: hash normalisation, estimated dates, failed detail fetches, explicit removal, and reappearance.",
+  "runs": [
+    {
+      "name": "seed",
+      "observed_at": "2026-10-03T09:00:00Z",
+      "source": "custom",
+      "scope": "nuance",
+      "discovery_complete": true,
+      "discovered_source_job_ids": ["501", "502"],
+      "details": [
+        {
+          "source_job_id": "501",
+          "url": "https://example.test/jobs/501?utm_source=seed",
+          "title": "Platform Engineer",
+          "company": "Nuance Labs",
+          "company_logo_url": "https://cdn.example.test/logo.png?version=1",
+          "location": "London, England",
+          "work_type": "full time",
+          "salary_min": 75000,
+          "salary_max": 90000,
+          "salary_period": "year",
+          "posted_at": "2026-10-03T08:30:00Z",
+          "description": "Build and operate reliable platform services."
+        },
+        {
+          "source_job_id": "502",
+          "url": "https://example.test/jobs/502",
+          "title": "Data Engineer",
+          "company": "Nuance Labs",
+          "company_logo_url": null,
+          "location": "Leeds, England",
+          "work_type": "full time",
+          "salary_min": null,
+          "salary_max": null,
+          "salary_period": null,
+          "posted_at": "2026-10-03T08:00:00Z",
+          "description": "Build data pipelines."
+        }
+      ],
+      "failed_detail_source_job_ids": [],
+      "confirmed_removed_source_job_ids": [],
+      "expected": {
+        "report": {"jobs_new": 2, "jobs_changed": 0, "jobs_removed": 0},
+        "rows": {
+          "custom:501": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T09:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": null
+          },
+          "custom:502": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T09:00:00Z",
+            "removed_at": null,
+            "posted_at": "2026-10-03T08:00:00Z",
+            "content_hash_equals_run": null
+          }
+        }
+      }
+    },
+    {
+      "name": "normalised_refresh_and_estimated_date",
+      "observed_at": "2026-10-03T10:00:00Z",
+      "source": "custom",
+      "scope": "nuance",
+      "discovery_complete": true,
+      "discovered_source_job_ids": ["501", "502"],
+      "details": [
+        {
+          "source_job_id": "501",
+          "url": "https://example.test/jobs/501?refresh_token=unused#overview",
+          "title": "  Platform   Engineer  ",
+          "company": "Nuance   Labs",
+          "company_logo_url": "https://cdn.example.test/logo.png?cache_bust=2#mark",
+          "location": " London,   England ",
+          "work_type": " full   time ",
+          "salary_min": "75000.00",
+          "salary_max": "90000.0",
+          "salary_period": "year",
+          "posted_at": "2026-10-03T09:30:00+01:00",
+          "description": " Build and\noperate reliable   platform services. "
+        },
+        {
+          "source_job_id": "502",
+          "url": "https://example.test/jobs/502?token=temporary",
+          "title": "Data Engineer",
+          "company": "Nuance Labs",
+          "company_logo_url": null,
+          "location": "Leeds, England",
+          "work_type": "full time",
+          "salary_min": null,
+          "salary_max": null,
+          "salary_period": null,
+          "posted_at": "2026-10-03T00:00:00Z",
+          "posted_at_estimated": true,
+          "description": "Build data pipelines."
+        }
+      ],
+      "failed_detail_source_job_ids": [],
+      "confirmed_removed_source_job_ids": [],
+      "expected": {
+        "report": {"jobs_new": 0, "jobs_changed": 0, "jobs_removed": 0},
+        "rows": {
+          "custom:501": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T10:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": "seed"
+          },
+          "custom:502": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T10:00:00Z",
+            "removed_at": null,
+            "posted_at": "2026-10-03T08:00:00Z",
+            "content_hash_equals_run": "seed"
+          }
+        }
+      }
+    },
+    {
+      "name": "failed_detail_is_not_a_change_or_removal",
+      "observed_at": "2026-10-03T11:00:00Z",
+      "source": "custom",
+      "scope": "nuance",
+      "discovery_complete": false,
+      "discovered_source_job_ids": ["501"],
+      "details": [],
+      "failed_detail_source_job_ids": ["501", "502", "not-stored"],
+      "confirmed_removed_source_job_ids": [],
+      "expected": {
+        "report": {"jobs_new": 0, "jobs_changed": 0, "jobs_removed": 0},
+        "rows": {
+          "custom:501": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T11:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": "seed"
+          },
+          "custom:502": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T10:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": "seed"
+          }
+        }
+      }
+    },
+    {
+      "name": "explicit_removal_with_reason",
+      "observed_at": "2026-10-03T12:00:00Z",
+      "source": "custom",
+      "scope": "nuance",
+      "discovery_complete": true,
+      "discovered_source_job_ids": ["501"],
+      "details": [],
+      "failed_detail_source_job_ids": [],
+      "confirmed_removed_source_job_ids": ["502", "missing"],
+      "removal_reasons": {"502": "gone:fixture_404"},
+      "expected": {
+        "report": {"jobs_new": 0, "jobs_changed": 0, "jobs_removed": 1},
+        "rows": {
+          "custom:501": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T12:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": "seed"
+          },
+          "custom:502": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T10:00:00Z",
+            "removed_at": "2026-10-03T12:00:00Z",
+            "removal_reason": "gone:fixture_404",
+            "content_hash_equals_run": "seed"
+          }
+        }
+      }
+    },
+    {
+      "name": "discovery_reappears_without_detail",
+      "observed_at": "2026-10-03T13:00:00Z",
+      "source": "custom",
+      "scope": "nuance",
+      "discovery_complete": true,
+      "discovered_source_job_ids": ["501", "502"],
+      "details": [],
+      "failed_detail_source_job_ids": [],
+      "confirmed_removed_source_job_ids": [],
+      "expected": {
+        "report": {"jobs_new": 0, "jobs_changed": 0, "jobs_removed": 0},
+        "rows": {
+          "custom:501": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T13:00:00Z",
+            "removed_at": null,
+            "content_hash_equals_run": "seed"
+          },
+          "custom:502": {
+            "first_seen_at": "2026-10-03T09:00:00Z",
+            "last_seen_at": "2026-10-03T13:00:00Z",
+            "removed_at": null,
+            "removal_reason": null,
+            "content_hash_equals_run": "seed"
+          }
+        }
+      }
+    }
+  ]
+}

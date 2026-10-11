@@ -2,6 +2,7 @@
 from crawler.boards.indeed import IndeedBoard, UK_EVIDENCE
 from crawler.boards.linkedin import LinkedInBoard
 from crawler.boards.reed import ReedBoard
+from crawler.dedupe.canonical import UnionFind, assign_canonical, build_clusters, norm_title
 from crawler.parse.normalize import html_to_text
 
 
@@ -68,5 +69,38 @@ def run() -> list[str]:
     check("reed shown salary", ReedBoard._salary({"displaySalary": "£30,000 - £40,000 per annum", "from": 30000, "to": 40000,
                                                    "type": {"name": "per annum"}}), (30000, 40000, "year"))
     check("html_to_text lists", html_to_text("<ul><li>One</li><li>Two</li></ul><p>End</p>"), "- One\n- Two\n\nEnd")
+    check("html_to_text drops escaped tags", html_to_text("&lt;a href='x'&gt;Apply&lt;/a&gt; now &lt;img src='data:image/png;base64,AAAA'&gt;"),
+          "Apply now")
+    check("html_to_text keeps non-HTML angle text", html_to_text("&lt;JF-FA-ES&gt; template"), "<JF-FA-ES> template")
+    check("title keeps role in brackets", norm_title("Member of Technical Staff (Backend Software)"),
+          "member of technical staff backend software")
+    check("title drops boilerplate brackets", norm_title("Care Assistant (m/f/d) (Permanent) [REF123]"), "care assistant")
+    row = lambda i, src, title: {"id": i, "source": src, "title": title, "company": "Perplexity", "location": "London",
+                                 "description": "Join us to build answer engines. " * 20}
+    groups = build_clusters([row("indeed:1", "indeed", "Member of Technical Staff"),
+                             row("linkedin:1", "linkedin", "Member of Technical Staff (AI Research)"),
+                             row("linkedin:2", "linkedin", "Member of Technical Staff (Backend Software)")])
+    check("distinct roles on one board never share a cluster", all(len({i for i in g if i.startswith("linkedin")}) < 2 for g in groups), True)
+    uf = UnionFind()
+    uf.register("a", "reed", "net developer"); uf.register("b", "reed", "net developer"); uf.register("c", "reed", "java developer")
+    uf.union("a", "b")
+    check("reposts of one role may merge", uf.compatible("a", "b"), True)
+    check("different roles on one board may not", uf.compatible("a", "c"), False)
+    desc = "Join our team to deliver great customer service every day. " * 15
+    mk = lambda i, src, title, first, canon=None: {"id": i, "source": src, "title": title, "company": "Acme",
+                                                   "location": "Leeds", "description": desc, "first": first, "canonical": canon}
+    copies = [mk("indeed:1", "indeed", "Care Assistant", 1), mk("reed:1", "reed", "Care Assistant", 2)]
+    first = assign_canonical(copies)
+    check("copies share the oldest id", first, {"indeed:1": "indeed:1", "reed:1": "indeed:1"})
+    for d in copies:
+        d["canonical"] = first[d["id"]]
+    check("canonical ids are stable on rerun", assign_canonical(copies), first)
+    stale = [mk("indeed:2", "indeed", "Care Assistant", 1, "indeed:2"), mk("reed:2", "reed", "Chef", 2, "indeed:2")]
+    check("a link the rules no longer support is dropped", assign_canonical(stale),
+          {"indeed:2": "indeed:2", "reed:2": "reed:2"})
+    split = [mk("indeed:3", "indeed", "Care Assistant", 1, "indeed:3"), mk("reed:3", "reed", "Care Assistant", 2, "indeed:3"),
+             mk("linkedin:3", "linkedin", "Chef", 3, "indeed:3"), mk("reed:4", "reed", "Chef", 4, "indeed:3")]
+    check("a split cluster keeps its id on the oldest part only", assign_canonical(split),
+          {"indeed:3": "indeed:3", "reed:3": "indeed:3", "linkedin:3": "linkedin:3", "reed:4": "linkedin:3"})
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs

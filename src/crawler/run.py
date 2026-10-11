@@ -44,6 +44,7 @@ class Budget:
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
         self.max_bytes = float(os.environ.get("CRAWL_MAX_GB", "2")) * 1e9
         self.max_requests = int(os.environ.get("CRAWL_MAX_REQUESTS_PER_BOARD", "6000"))
+        self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
         self.n_boards = n_boards
         self.stop_flag = False
 
@@ -99,12 +100,14 @@ class Batch:
 
 def crawl_board(board, client, conn, run_id, run_start, budget, totals: Counts, stats):
     known, skipped = _load_known(conn, board.name)
-    stop = lambda: budget.exhausted(client, board.name)
+    got = [0]                                 # jobs stored by this board so far (for the per-board job cap)
+    stop = lambda: budget.exhausted(client, board.name) or (budget.max_jobs and got[0] >= budget.max_jobs)
     batch, now = Batch(conn, board.name, totals, run_id), datetime.now(timezone.utc)
 
     def handle(res, jid):
         if res.kind == "job":
             batch.details.append(res.job)
+            got[0] += 1
         elif res.kind in ("expired", "gone"):
             batch.remove(jid, f"{res.kind}:{res.reason}")
         elif res.kind == "skip":

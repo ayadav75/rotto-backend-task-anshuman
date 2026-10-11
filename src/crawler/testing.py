@@ -14,6 +14,7 @@ from crawler.store.reconcile import Run, apply_run
 TEST_DB = "jobs_test"
 COUNT_KEYS = ("jobs_new", "jobs_changed", "jobs_removed")
 EDGE_FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "edge_cases.json"
+NUANCE_FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "lifecycle_nuances.json"
 
 
 def _admin_url():
@@ -132,8 +133,7 @@ def dedupe_checks(conn) -> list[str]:
 
 def main() -> int:
     paths = [os.environ.get("FIXTURE_PATH", "tests/fixtures/lifecycle.json")]
-    if EDGE_FIXTURE.exists():
-        paths.append(str(EDGE_FIXTURE))
+    paths.extend(str(path) for path in (EDGE_FIXTURE, NUANCE_FIXTURE) if path.exists())
     from crawler.unit_checks import run as unit_checks
     errors = unit_checks()
     for n, p in enumerate(paths):
