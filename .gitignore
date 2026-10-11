@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 .probe/
 .DS_Store
+
+# Local assignment brief
+REQUIREMENTS.md
