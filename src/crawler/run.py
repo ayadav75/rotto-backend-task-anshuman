@@ -44,6 +44,7 @@ class Budget:
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
         self.max_bytes = float(os.environ.get("CRAWL_MAX_GB", "2")) * 1e9
         self.max_requests = int(os.environ.get("CRAWL_MAX_REQUESTS_PER_BOARD", "6000"))
+        self.max_fail_streak = int(os.environ.get("CRAWL_MAX_FAIL_STREAK", "40"))   # consecutive failures -> give up on a board
         self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
         self.n_boards = n_boards
         self.stop_flag = False
@@ -51,7 +52,8 @@ class Budget:
     def exhausted(self, client, board) -> bool:
         return (self.stop_flag or time.time() > self.deadline
                 or client.bytes_total > self.max_bytes
-                or client.requests_by_source[board] > self.max_requests)
+                or client.requests_by_source[board] > self.max_requests
+                or client.fail_streak[board] >= self.max_fail_streak)
 
 
 def _load_known(conn, source):
@@ -232,6 +234,8 @@ def main() -> int:
     conn = connect()
     migrate(conn)
     started = datetime.now(timezone.utc)
+    # a run killed hard (SIGKILL, power loss) never reaches its final UPDATE: close it out here
+    conn.execute("UPDATE crawl_runs SET status='interrupted' WHERE status='running'")
     run_id = conn.execute("INSERT INTO crawl_runs (started_at) VALUES (%s) RETURNING id", (started,)).fetchone()[0]
     conn.commit()
     budget = Budget(len(BOARDS))
@@ -248,7 +252,14 @@ def main() -> int:
             log.info("crawling %s with %d workers", board.name, workers_for(board.name))
             try:
                 crawl_board(board, client, board_conn, run_id, started, budget, board_totals, stats)
-                results[board.name] = (board_totals, True)
+                healthy = client.requests_by_source[board.name] == 0 or client.ok_by_source[board.name] > 0
+                if client.fail_streak[board.name] >= budget.max_fail_streak:
+                    log.error("%s: %d consecutive failed requests, gave up on this board (proxy down or blocked?)",
+                              board.name, client.fail_streak[board.name])
+                    healthy = False
+                elif not healthy:
+                    log.error("%s: every request failed, nothing was crawled (check proxy credentials)", board.name)
+                results[board.name] = (board_totals, healthy)
             except Exception:
                 log.exception("board %s failed; keeping data saved so far", board.name)
                 results[board.name] = (board_totals, False)
