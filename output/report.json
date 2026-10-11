@@ -1,24 +1,32 @@
 {
-  "started_at": "2026-10-09T17:08:48.960885+00:00",
-  "finished_at": "2026-10-09T17:10:48.946386+00:00",
-  "requests_total": 123,
-  "requests_blocked": 4,
+  "started_at": "2026-10-11T18:45:53.930637+00:00",
+  "finished_at": "2026-10-11T18:46:43.588568+00:00",
+  "requests_total": 290,
+  "requests_blocked": 0,
   "requests_by_status": {
-    "200": 119,
-    "429": 4
+    "200": 290
   },
-  "blocked_reasons": {
-    "http_429": 4
-  },
+  "blocked_reasons": {},
   "jobs_by_source": {
-    "linkedin": 218,
-    "reed": 391,
-    "indeed": 11209
+    "linkedin": 25010,
+    "reed": 25067,
+    "indeed": 25070
   },
-  "duplicates_linked": 1,
-  "jobs_new": 262,
+  "decision_reasons": {},
+  "requests_by_source": {
+    "linkedin": {
+      "requests": 25,
+      "blocked": 0
+    },
+    "reed": {
+      "requests": 265,
+      "blocked": 0
+    }
+  },
+  "duplicates_linked": 784,
+  "jobs_new": 54,
   "jobs_removed": 0,
-  "jobs_changed": 27,
-  "estimated_proxy_gb": 0.0113,
-  "estimated_cost_usd": 0.0566
+  "jobs_changed": 0,
+  "estimated_proxy_gb": 0.0302,
+  "estimated_cost_usd": 0.1509
 }
