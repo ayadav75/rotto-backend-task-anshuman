@@ -7,6 +7,8 @@ make test                 # offline lifecycle fixtures, no proxy or internet (FI
 ```
 Run `make crawl` again for an incremental run. Every run rewrites `output/jobs.jsonl` (all rows, removed ones included) and `output/report.json`.
 
+**Note:** `output/jobs.jsonl` is stored with Git LFS because it is over GitHub's 100 MB file limit. After cloning, run `git lfs install && git lfs pull` (or clone with LFS installed) to get the real file instead of the pointer. `output/report.json` is a normal file.
+
 ## How it works
 `boards/` only fetch and parse, `store/reconcile.py` is the single save path (live crawl and `make test` both call `apply_run()`), `dedupe/` links copies. Boards run concurrently with a worker pool each.
 
@@ -28,16 +30,16 @@ Candidates are blocked on normalised company + city. Within a block, copies on d
 
 ## What worked and what didn't
 - **Worked:** Indeed GraphQL with the `safari17_2_ios` profile (the default Chrome profile did not clear the search page). A 1.5 s page delay and 8 workers on LinkedIn.
-- **Didn't:** Indeed `/viewjob` and deep search pages (challenge). LinkedIn at ~0.3 s between pages or 24 workers drew HTTP 429 (~5% of requests).
+- **Didn't:** Indeed `/viewjob` and deep search pages (challenge). LinkedIn at ~0.3 s between pages drew a 429 after two pages. At 1.5 s, 5-14% of requests still get a 429 (retried on a fresh IP), with 8 or 24 workers alike.
 - **Reed pagination** clamps at ~10k, hence slicing.
 
 ## Tradeoffs
 - **Precision over recall in dedupe.** A wrong merge hurts more than a missed link.
 - **Salary only from the board's structured field.** A £ figure inside free text is not parsed, because ranges, bonuses and OTE make it a guess. It stays null.
 - **No salary period conversion.** Weekly or monthly pay is stored null, not annualised.
-- **Indeed logos are null:** the API returned none in our crawls.
+- **Indeed logos:** taken from `employer.dossier.images.squareLogoUrl`; about 60% of crawled rows have one, the rest are null because the source gives none.
 - **UK validity:** a bare "remote" needs UK evidence in the title or text, otherwise the job is skipped (re-evaluated next run).
 - **LinkedIn has no change signal,** so edits are found at the weekly refresh, not sooner.
 
 ## Cost
-`estimated_cost_usd` in the report = measured bytes × `PROXY_USD_PER_GB` (default $5). Bytes are estimated from response size and should be checked against the proxy dashboard. A Reed + LinkedIn run averaged ~104 KB per request, so about **$0.52 per 1,000 pages** at $5/GB. Indeed is far cheaper per job (100 jobs per request).
+`estimated_cost_usd` in the report = measured bytes x `PROXY_USD_PER_GB` (default $5). Bytes are estimated from response size and should be checked against the proxy dashboard. Measured over a 75k-job run (58.7k requests, 3.3 GB): about 57 KB per request overall, so **about $0.28 per 1,000 requests** at $5/GB. By board: Reed ~109 KB per request (~$0.55 per 1,000 pages), LinkedIn ~11 KB (~$0.06), Indeed ~135 KB but about 80 jobs per request.

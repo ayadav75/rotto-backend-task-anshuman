@@ -2,7 +2,7 @@
 from crawler.boards.indeed import IndeedBoard, UK_EVIDENCE
 from crawler.boards.linkedin import LinkedInBoard
 from crawler.boards.reed import ReedBoard
-from crawler.dedupe.canonical import UnionFind, assign_canonical, build_clusters, norm_title
+from crawler.dedupe.canonical import UnionFind, assign_canonical, build_clusters, is_match, norm_title
 from crawler.parse.normalize import html_to_text
 
 
@@ -113,5 +113,25 @@ def run() -> list[str]:
     fake.bytes_by_source["reed"] = 1500; fake.bytes_total = 1900
     check("a board over its share is stopped", bud.exhausted(fake, "reed"), True)
     check("another board under its share keeps going", bud.exhausted(fake, "linkedin"), False)
+    d = "Join our school team supporting pupils with additional needs across the week. " * 12
+    job = lambda src, title, co="Witherslack Group", desc=d: {"source": src, "title": norm_title(title), "company": co,
+                                                              "desc": desc}
+    check("title plus a prefix is the same posting", is_match(job("reed", "SEMH Teaching Assistant"), job("linkedin", "Teaching Assistant")), True)
+    check("title plus an FTC suffix is the same posting",
+          is_match(job("indeed", "Credit Risk Analyst", "NEXT"), job("linkedin", "Credit Risk Analyst - 12 month FTC", "NEXT")), True)
+    check("contained titles still need a near-identical description",
+          is_match(job("reed", "SEMH Teaching Assistant"), job("linkedin", "Teaching Assistant", desc="Totally different text about vans. " * 12)), False)
+    check("contained titles from different companies do not match on text alone",
+          is_match(job("reed", "SEMH Teaching Assistant", "A School"), job("linkedin", "Teaching Assistant", "B School")), False)
+    check("a shared agency template does not merge different roles",
+          is_match(job("linkedin", "Electrical Technician (Industrial Vehicles)", "Ernest Gordon Recruitment"),
+                   job("reed", "Mechanical Fitter (Industrial Vehicles)", "Ernest Gordon Recruitment")), False)
+    check("a seniority prefix makes it a different job",
+          is_match(job("indeed", "Mechanical Engineer", "BAE Systems"), job("linkedin", "Senior Mechanical Engineer", "BAE Systems")), False)
+    check("extra detail like a key stage still matches",
+          is_match(job("indeed", "Learning Support Assistant - Key Stage 4", "Capital City College"),
+                   job("linkedin", "Learning Support Assistant", "Capital City College")), True)
+    check("a single-word title is not 'contained'",
+          is_match(job("reed", "Electrician", "Acme"), job("linkedin", "Electrician Mate Domestic Rewires", "Acme")), False)
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs

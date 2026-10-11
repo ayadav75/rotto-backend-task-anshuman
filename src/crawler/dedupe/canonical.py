@@ -47,16 +47,38 @@ def norm_desc(d):
     return " ".join(re.findall(r"[a-z0-9]+", d[: DESC_CHARS * 2].lower()))[:DESC_CHARS]
 
 
+# Extra title words that make it a different job (a level, shift or seniority), not a variant of the same ad.
+ROLE_CHANGING = {"senior", "sr", "junior", "jr", "lead", "principal", "head", "chief", "graduate", "grad", "trainee",
+                 "apprentice", "intern", "deputy", "assistant", "associate", "manager", "director", "supervisor",
+                 "ii", "iii", "iv", "v", "level", "night", "nights", "day", "days",
+                 "weekend", "evening", "bank", "relief", "locum", "fleet", "estates"}
+DESC_CONTAINED_MIN = 95       # a contained title needs a near-identical description
+
+
+def title_contained(a: str, b: str) -> bool:
+    """One normalised title is the other plus harmless extra words ("Teaching Assistant" / "SEMH Teaching
+    Assistant", "Credit Risk Analyst" / "Credit Risk Analyst 12 month FTC"). Extra words that change the job
+    (senior, II, night, manager...) disqualify it. Single-word titles must match exactly."""
+    ta, tb = set(a.split()), set(b.split())
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return len(short) >= 2 and short <= long_ and not ((long_ - short) & ROLE_CHANGING)
+
+
 def is_match(a, b) -> bool:
     if a["source"] == b["source"]:
         return False
+    same_company = a["company"] is not None and a["company"] == b["company"]
+    desc = max(fuzz.token_set_ratio(a["desc"], b["desc"]), fuzz.ratio(a["desc"][:600], b["desc"][:600]))
+    # A title that merely gains a suffix or prefix is the same posting when the text is (near) identical.
+    if same_company and desc >= DESC_CONTAINED_MIN and title_contained(a["title"], b["title"]):
+        return True
     title = fuzz.token_sort_ratio(a["title"], b["title"])
     if title < 80:
         return False
-    desc = max(fuzz.token_set_ratio(a["desc"], b["desc"]), fuzz.ratio(a["desc"][:600], b["desc"][:600]))
-    same_company = a["company"] is not None and a["company"] == b["company"]
     if same_company:
-        return (title >= 90 and desc >= 55) or desc >= 80
+        # Agencies reuse one description template across different roles, so a description alone only
+        # counts when the titles are also close (85+).
+        return (title >= 90 and desc >= 55) or (title >= 85 and desc >= 80)
     # one side hides its company: demand stronger evidence
     return title >= 90 and desc >= 85
 
