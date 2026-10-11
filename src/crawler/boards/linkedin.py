@@ -4,6 +4,7 @@ discovery = page each (keyword x location) query to its end; only a query that h
 split further along filter dimensions."""
 import itertools
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -143,7 +144,9 @@ class LinkedInBoard(Board):
         dims = [("f_TPR", TPR), ("f_JT", JOB_TYPES), ("f_WT", WORK_MODES)]
         # broad locations first so the budget buys breadth before depth
         try:
-            for loc, kw in itertools.product(LOCATIONS, KEYWORDS):
+            # CRAWL_LINKEDIN_SKIP_QUERIES lets an interrupted crawl restart past the queries it already covered
+            skip = int(os.environ.get("CRAWL_LINKEDIN_SKIP_QUERIES", "0"))
+            for loc, kw in itertools.islice(itertools.product(LOCATIONS, KEYWORDS), skip, None):
                 yield from self._refine(client, kw, loc, {}, dims, seen, should_stop)
                 if should_stop():
                     return

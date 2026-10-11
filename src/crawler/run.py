@@ -36,33 +36,45 @@ def workers_for(name: str) -> int:
     return max(1, int(v)) if v else DEFAULT_WORKERS.get(name, 4)
 
 
-class Budget:
-    """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split evenly so a
-    fast board cannot starve the others; a board that finishes early releases its unused share to the rest.
-    Per-board request cap."""
+def parse_weights(spec: str) -> dict:
+    """'indeed=3,linkedin=10,reed=87' -> {'indeed': 3.0, ...}; boards not listed weigh 1."""
+    out = {}
+    for part in filter(None, (spec or "").split(",")):
+        name, _, val = part.partition("=")
+        out[name.strip()] = float(val)
+    return out
 
-    def __init__(self, n_boards):
+
+class Budget:
+    """Boards run concurrently under a shared wall-clock deadline. The proxy byte budget is split by weight
+    (CRAWL_BYTE_WEIGHTS, default equal) so a fast or expensive board cannot starve the others; a board that
+    finishes early releases its unused share to the rest. Per-board request cap."""
+
+    def __init__(self, boards):
         self.deadline = time.time() + float(os.environ.get("CRAWL_MAX_MINUTES", "90")) * 60
         self.max_bytes = float(os.environ.get("CRAWL_MAX_GB", "2")) * 1e9
         self.max_requests = int(os.environ.get("CRAWL_MAX_REQUESTS_PER_BOARD", "6000"))
         self.max_fail_streak = int(os.environ.get("CRAWL_MAX_FAIL_STREAK", "40"))   # consecutive failures -> give up on a board
         self.max_jobs = int(os.environ.get("CRAWL_MAX_JOBS_PER_BOARD", "0"))   # 0 = unlimited
-        self.n_boards = n_boards
+        self.boards = list(boards)
+        self.weights = parse_weights(os.environ.get("CRAWL_BYTE_WEIGHTS", ""))
         self.stop_flag = False
         self.finished = set()
 
     def finish(self, board):
         self.finished.add(board)
 
-    def byte_allowance(self, client) -> float:
+    def byte_allowance(self, client, board) -> float:
         done = set(self.finished)
         left = self.max_bytes - sum(client.bytes_by_source[b] for b in done)
-        return max(0.0, left) / max(1, self.n_boards - len(done))
+        active = [b for b in self.boards if b not in done] or [board]
+        total = sum(self.weights.get(b, 1.0) for b in active)
+        return max(0.0, left) * self.weights.get(board, 1.0) / total
 
     def exhausted(self, client, board) -> bool:
         return (self.stop_flag or time.time() > self.deadline
                 or client.bytes_total > self.max_bytes
-                or client.bytes_by_source[board] > self.byte_allowance(client)
+                or client.bytes_by_source[board] > self.byte_allowance(client, board)
                 or client.requests_by_source[board] > self.max_requests
                 or client.fail_streak[board] >= self.max_fail_streak)
 
@@ -249,7 +261,7 @@ def main() -> int:
     conn.execute("UPDATE crawl_runs SET status='interrupted' WHERE status='running'")
     run_id = conn.execute("INSERT INTO crawl_runs (started_at) VALUES (%s) RETURNING id", (started,)).fetchone()[0]
     conn.commit()
-    budget = Budget(len(BOARDS))
+    budget = Budget([b.name for b in BOARDS])
     signal.signal(signal.SIGINT, lambda *_: setattr(budget, "stop_flag", True))
     signal.signal(signal.SIGTERM, lambda *_: setattr(budget, "stop_flag", True))
     client = Client(connect(), run_id)

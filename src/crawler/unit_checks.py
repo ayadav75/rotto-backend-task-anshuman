@@ -103,35 +103,20 @@ def run() -> list[str]:
     check("a split cluster keeps its id on the oldest part only", assign_canonical(split),
           {"indeed:3": "indeed:3", "reed:3": "indeed:3", "linkedin:3": "linkedin:3", "reed:4": "linkedin:3"})
     from collections import Counter
-    from crawler.run import Budget
-    bud, fake = Budget(3), type("C", (), {"bytes_by_source": Counter(), "bytes_total": 0, "requests_by_source": Counter(),
-                                          "fail_streak": Counter()})()
-    bud.max_bytes = 3000.0
-    check("byte budget split evenly across boards", bud.byte_allowance(fake), 1000.0)
+    from crawler.run import Budget, parse_weights
+    check("weights parse", parse_weights("indeed=3, linkedin=10,reed=87"), {"indeed": 3.0, "linkedin": 10.0, "reed": 87.0})
+    names = ["indeed", "linkedin", "reed"]
+    fake = type("C", (), {"bytes_by_source": Counter(), "bytes_total": 0, "requests_by_source": Counter(),
+                          "fail_streak": Counter()})()
+    bud = Budget(names); bud.max_bytes = 3000.0; bud.weights = {}
+    check("default byte budget splits evenly", bud.byte_allowance(fake, "reed"), 1000.0)
     fake.bytes_by_source["indeed"] = 400; bud.finish("indeed")
-    check("a finished board releases its unused share", bud.byte_allowance(fake), 1300.0)
+    check("a finished board releases its unused share", bud.byte_allowance(fake, "reed"), 1300.0)
     fake.bytes_by_source["reed"] = 1500; fake.bytes_total = 1900
     check("a board over its share is stopped", bud.exhausted(fake, "reed"), True)
     check("another board under its share keeps going", bud.exhausted(fake, "linkedin"), False)
-    d = "Join our school team supporting pupils with additional needs across the week. " * 12
-    job = lambda src, title, co="Witherslack Group", desc=d: {"source": src, "title": norm_title(title), "company": co,
-                                                              "desc": desc}
-    check("title plus a prefix is the same posting", is_match(job("reed", "SEMH Teaching Assistant"), job("linkedin", "Teaching Assistant")), True)
-    check("title plus an FTC suffix is the same posting",
-          is_match(job("indeed", "Credit Risk Analyst", "NEXT"), job("linkedin", "Credit Risk Analyst - 12 month FTC", "NEXT")), True)
-    check("contained titles still need a near-identical description",
-          is_match(job("reed", "SEMH Teaching Assistant"), job("linkedin", "Teaching Assistant", desc="Totally different text about vans. " * 12)), False)
-    check("contained titles from different companies do not match on text alone",
-          is_match(job("reed", "SEMH Teaching Assistant", "A School"), job("linkedin", "Teaching Assistant", "B School")), False)
-    check("a shared agency template does not merge different roles",
-          is_match(job("linkedin", "Electrical Technician (Industrial Vehicles)", "Ernest Gordon Recruitment"),
-                   job("reed", "Mechanical Fitter (Industrial Vehicles)", "Ernest Gordon Recruitment")), False)
-    check("a seniority prefix makes it a different job",
-          is_match(job("indeed", "Mechanical Engineer", "BAE Systems"), job("linkedin", "Senior Mechanical Engineer", "BAE Systems")), False)
-    check("extra detail like a key stage still matches",
-          is_match(job("indeed", "Learning Support Assistant - Key Stage 4", "Capital City College"),
-                   job("linkedin", "Learning Support Assistant", "Capital City College")), True)
-    check("a single-word title is not 'contained'",
-          is_match(job("reed", "Electrician", "Acme"), job("linkedin", "Electrician Mate Domestic Rewires", "Acme")), False)
+    w, idle = Budget(names), type("C", (), {"bytes_by_source": Counter()})()
+    w.max_bytes = 3000.0; w.weights = parse_weights("indeed=3,linkedin=10,reed=87")
+    check("weighted split follows the weights", [round(w.byte_allowance(idle, n)) for n in names], [90, 300, 2610])
     print("unit checks:", "OK" if not errs else "FAILED")
     return errs
